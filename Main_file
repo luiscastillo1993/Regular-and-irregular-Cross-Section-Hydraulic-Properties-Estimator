@@ -18,7 +18,7 @@ res = 50  # To be defined by the user, this resolution means the quantity of ele
 man = 0.012  # To be defined by the user, Manning roughness coefficient
 s = 0.00398  # To be defined by the user, slope of the cross-section
 
-file = open("D:/Google_drive/Meu Drive/Papers/Paper - Nota_tecnica/j1.csv")  # Read path data
+file = open("coordinates_file")  # Read path data
 coors = pd.read_csv(file, delimiter=';', header=None).values  # Read file with the cross-section coordinates
 plt.plot(coors[:, 0], coors[:, 1])  # Plot the coordinates
 
