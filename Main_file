@@ -1,0 +1,128 @@
+# %%% Regular and irregular Cross-Section Hydraulic Properties Estimator %%% #
+# Developer: Luis Castillo
+# Date 5/20/2022
+# Goal: Determine hydrualic properties for regular or irregular cross-section
+
+import numpy as np
+import pandas as pd
+import math
+import matplotlib.pyplot as plt
+from matplotlib import pyplot
+from numpy import exp
+
+noise = 0.01  # By default
+res = 50  # To be defined by the user, this resolution means the quantity of elements between point, i.e., between
+          # two coordinates (1 and 2) on the vertical axis, and for a res = 10, 10 elements will be discretized between
+          # 1 and 2 coordinates. the bigger the quantity of elements, the better representation, however, it takes more
+          # time of processing.
+man = 0.012  # To be defined by the user, Manning roughness coefficient
+s = 0.00398  # To be defined by the user, slope of the cross-section
+
+file = open("D:/Google_drive/Meu Drive/Papers/Paper - Nota_tecnica/j1.csv")  # Read path data
+coors = pd.read_csv(file, delimiter=';', header=None).values  # Read file with the cross-section coordinates
+plt.plot(coors[:, 0], coors[:, 1])  # Plot the coordinates
+
+Ymax, Ymin, Xmax, Xmin = max(coors[:, 1]), min(coors[:, 1]), max(coors[:, 0]), min(coors[:,0 ])   # Maximum and minimum values of the list of coordinates
+for m in range(len(coors)):
+    if coors[m][1] <= Ymin:  # Looking for the middle part of the cross-section
+        middle = coors[m][0]
+
+# --- Preallocate HP --- #
+area, top, = np.zeros((int(Ymax*res - Ymin*res), 1)), np.zeros((int(Ymax*res - Ymin*res), 1))
+perimeter_2, y = np.zeros((int(Ymax*res - Ymin*res), 1)), np.zeros((int(Ymax*res - Ymin*res), 1))
+RH, centroid = np.zeros((int(Ymax*res - Ymin*res), 1)), np.zeros((int(Ymax*res - Ymin*res), 1))
+con, phi = np.zeros((int(Ymax*res - Ymin*res), 1)), np.zeros((int(Ymax*res - Ymin*res), 1))
+Q, center = np.zeros((int(Ymax*res - Ymin*res), 1)), np.zeros((int(Ymax*res - Ymin*res), 1))
+seg_x, seg_y = np.zeros((len(coors[:, 0]) - 1, 2)), np.zeros((len(coors[:, 0]) - 1, 2))
+
+for i in range(len(coors) - 1):
+    seg_x[i, 0], seg_x[i, 1] = coors[i, 0], coors[i+1, 0]
+    seg_y[i, 0], seg_y[i, 1] = coors[i, 1], coors[i+1, 1]
+
+
+def per(i):
+    return math.sqrt(pow(seg_y[i, 0]- seg_y[i, 1], 2) + pow(seg_x[i, 0]-seg_x[i, 1], 2))
+
+
+def image_x(i, j):  # Function that according to the horizontal position of K, returns the vertical image of the segment
+    if seg_y[i, 0] == seg_y[i, 1]:  # if there is a vertical wall
+        return (seg_x[i, 0]) - (((seg_y[i, 0] - j)*(seg_x[i, 0]-seg_x[i, 1])) / ((seg_y[i, 0]-seg_y[i, 0]*noise) - (seg_y[i, 1]+seg_y[i, 1]*noise)))
+    return (seg_x[i, 0]) - (((seg_y[i, 0] - j)*(seg_x[i, 0]-seg_x[i, 1])) / (seg_y[i, 0] - seg_y[i, 1]))
+
+
+def image_y(i, j):  # Function that according to the horizontal position of K, returns the vertical image of the segment
+    if seg_x[i, 0] == seg_x[i, 1]:  # if there is a horizontal wall
+        return (seg_y[i, 0]) - ((seg_y[i, 0] - seg_y[i, 1])/((seg_x[i, 0]-seg_x[i, 0]*noise)-(seg_x[i, 1]+seg_x[i, 1]*noise)))*(seg_x[i, 0] - j)
+    return (seg_y[i, 0]) - ((seg_y[i, 0] - seg_y[i, 1])/(seg_x[i, 0]-seg_x[i, 1]))*(seg_x[i, 0] - j)
+
+
+mg = np.zeros((int(round((Ymax-Ymin)*res)), int(round((Xmax-Xmin)*res))), dtype=int)  # Main Grid
+
+for j in range(int(round(Ymin*res))+1, int(round(Ymax*res))):  # Looping thought the vertical axis
+    seg_x_2, seg_y_2 = np.zeros((len(seg_y), 1)), np.zeros((len(seg_y), 1))
+    for i in range(len(seg_y)):  # finding the upper boundary of the water deep
+        if (seg_y[i, 0] >= j/res > seg_y[i, 1]) or (seg_y[i, 0] <= j/res <= seg_y[i, 1]):
+            seg_y_2[i, 0] = i
+            seg_x_2[i, 0] = (seg_x[i, 0]+seg_x[i, 1])/2 - middle
+    left_wall = np.where(seg_x_2 < 0, seg_x_2, -np.inf).argmax()  # Finding the walls that contains the current
+    right_wall = np.where(seg_x_2 > 0, seg_x_2, np.inf).argmin()   # water level
+
+    if left_wall == right_wall:  # this condition is meet when water level is higher the profile
+        break
+
+    for i in np.arange(round(image_x(left_wall, j/res)*res) - Xmin*res,  # Looping thought the horizontal axis
+                       round(image_x(right_wall, j/res)*res) - Xmin*res -1):   # Modifying the main grid
+        for k in range(len(seg_x)):
+            if (seg_x[k, 0] <= (i / res + Xmin) < seg_x[k, 1]):  # Looking for what segment "i" belongs to.
+                break
+        mg[round(Ymax*res-j): int(round(Ymax*res)) - int(round(image_y(k, (i/res + Xmin))*res)), int(i)] = 1
+        center[int(j - Ymin*res), 0] = ((np.count_nonzero(mg[:, int(i)] == 1)/2)/res + (image_y(k, (i/res)))) * (np.count_nonzero(mg[:, int(i)] == 1)/pow(res, 2))
+
+    perimeter = []
+    for i in range(left_wall,
+                   right_wall):  # all segments between the walls but not including they selfs
+        perimeter.append(per(i))
+    perimeter.append(math.sqrt(pow(j/res - seg_y[left_wall, 1], 2) +
+                               pow(image_x(left_wall, j/res) - seg_x[left_wall, 1],
+                                   2)))  # perimeter for the left boundary
+    perimeter.append(math.sqrt(pow(j/res - seg_y[right_wall, 0], 2) +
+                               pow(image_x(right_wall, j/res) - seg_x[right_wall, 0],
+                                   2)))  # perimeter for the right boundary
+
+    area[int(j - Ymin*res), 0] = np.sum(mg) / pow(res, 2)
+    y[int(j - Ymin*res), 0] = j / res - Ymin
+    perimeter_2[int(j - Ymin*res), 0] = np.sum(perimeter)
+    RH[int(j - Ymin*res), 0] = (np.sum(mg) / pow(res, 2))/np.sum(perimeter)
+    top[int(j - Ymin*res), 0] = image_x(right_wall, j/res)-image_x(left_wall, j/res)
+    centroid[int(j - Ymin*res), 0] = np.sum(center)/(np.sum(mg))
+    con[int(j - Ymin*res), 0] = (1/man)*(np.sum(mg) / pow(res, 2))*pow((np.sum(mg) / pow(res,2))/(np.sum(perimeter)), 2/3)
+    phi[int(j - Ymin*res), 0] = (np.sum(mg) / pow(res, 2))*pow((np.sum(mg) / pow(res,2))/(np.sum(perimeter)), 2/3)
+    Q[int(j - Ymin*res), 0] = (1/man)*(np.sum(mg) / pow(res, 2))*pow((np.sum(mg) / pow(res,2))/(np.sum(perimeter)), 2/3)*pow(s, 1/2)
+
+# --- Filling with Nan all extra elements in the arrays --- #
+area[int(j - Ymin*res): , 0], y[int(j - Ymin*res): , 0], perimeter_2[int(j - Ymin*res): , 0] = math.nan, math.nan, math.nan
+RH[int(j - Ymin*res): , 0], top[int(j - Ymin*res): , 0], centroid[int(j - Ymin*res): , 0] = math.nan, math.nan, math.nan
+con[int(j - Ymin*res): , 0], phi[int(j - Ymin*res): , 0], Q[int(j - Ymin*res): , 0] = math.nan, math.nan, math.nan
+plt.imshow(mg, cmap='Blues', aspect='auto')
+
+# ---  Plotting the HP curves --- #
+fig, (ax1, ax2, ax3, ax4, ax5, ax6, ax7, ax8) = plt.subplots(1, 8)
+fig.suptitle('2b')
+ax1.plot(area, y)
+ax1.set_xlabel('Area $(m^2)$')
+ax1.set_ylabel('water depth $(m)$')
+ax2.plot(perimeter_2, y)
+ax2.set_xlabel('Perimeter $(m)$')
+ax3.plot(top,y)
+ax3.set_xlabel('Top lenght $(m)$')
+ax4.plot(RH, y)
+ax4.set_xlabel('Hydraulic radius $(m)$')
+ax5.plot(centroid,y)
+ax5.set_xlabel('Centroid $(m)$')
+ax6.plot(con, y)
+ax6.set_xlabel('Conveyance $(m^3/s)$')
+ax7.plot(phi, y)
+ax7.set_xlabel('Phi $(m^3/s)$')
+ax8.plot(Q, y)
+ax8.set_xlabel('Flow $(m^3/s)$')
+
